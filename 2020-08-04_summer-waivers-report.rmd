@@ -1,0 +1,606 @@
+---
+title: "GSU Waiver Report"
+author: "J. Crawford & S. Ridley"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output:
+  html_document:
+    df_print: paged
+    theme: flatly
+    highlight: haddock
+    toc: yes
+    toc_float: yes
+---
+
+```{r include = FALSE}
+
+setwd("~/Graduate School Waivers")
+
+knitr::opts_chunk$set(echo = FALSE, 
+                      message = FALSE, 
+                      warning = FALSE, 
+                      fig.width = 10)     # Global knitr options
+
+library(tidyr)
+library(dplyr)
+library(readxl)
+library(scales)
+library(panthr)
+library(ggplot2)
+library(lubridate)
+library(treemapify)
+library(kableExtra)                       # Load packages
+
+options(scipen = 999)                     # Disable sci. notation
+
+waiver <- read_excel(path = "Summer 2020 Waivers by College as of 7.15.2020.xlsx", 
+                     sheet = "DB Comptroller Waiver by Term_2") %>%
+  field_case(case = "snake") %>%
+  rename(date = systemdate,
+         pidm = sfrstcr_pidm,
+         level = student_level_code,
+         college = `college_description...11`,
+         in_state = instatewaiver,
+         out_state = outofstatewaiver) %>%
+  select(date, pidm, level, college, 
+         prog_code, in_state, out_state) %>%
+  mutate(in_state = ifelse(is.na(in_state), 0, in_state),
+         out_state = ifelse(is.na(out_state), 0, out_state))
+
+```
+
+<br>
+
+# Overview
+
+```{r}
+
+# DETERMINE DATE POINT OR RANGE
+
+min_date <- min(waiver$date)
+max_date <- max(waiver$date)
+
+range_dates <- ifelse(test = min_date == max_date,
+                      yes = paste0("These data are current as of ", 
+                                   day(min_date), " ",
+                                   month(min_date, 
+                                         label = TRUE, 
+                                         abbr = FALSE), ", ", 
+                                   year(min_date), "."),
+                      no = paste0("These data range from ", 
+                                  day(max_date), " ",
+                                  month(min_date, 
+                                        label = TRUE, 
+                                        abbr = FALSE), ", ", 
+                                  year(min_date), " to ",
+                                  day(max_date), " ",
+                                  month(max_date, 
+                                        label = TRUE, 
+                                        abbr = FALSE), ", ", 
+                                  year(max_date), "."))
+
+```
+
+The following prototype is a dynamic representation of in- and out-of-state 
+student waiver data at **[Georgia State University](https://www.gsu.edu/)**. The
+tables and visualizations within will update with the introduction of new data.
+
+**`r range_dates`**
+
+<br>
+<br>
+
+# All Waivers
+
+```{r}
+
+# TOTALS
+
+all_in_state <- sum(waiver$in_state, na.rm = TRUE)
+all_out_state  <- sum(waiver$out_state, na.rm = TRUE)
+
+all_in_out <- sum(c(all_in_state, all_out_state))
+
+prop_in_state <- all_in_state / all_in_out
+prop_out_state <- all_out_state / all_in_out
+
+```
+
+The following provides waiver totals across colleges and levels.
+
+* Out-of-state waivers total **`r dollar(all_out_state)`** 
+(**`r percent(prop_out_state, 0.01)`**)
+
+* In-state waivers total **`r dollar(all_in_state)`** 
+(**`r percent(prop_in_state, 0.01)`**)
+
+* Total waivers equal **`r dollar(all_in_out)`**
+
+<br>
+<br>
+
+```{r fig.height = 3}
+
+wavers_by_state <- data.frame(Location = c("Out-of-State", "In-State"), 
+                              Value = c(all_out_state, all_in_state))
+
+ggplot(wavers_by_state, 
+       aes(x = Location,
+           y = Value)) + 
+  geom_bar(stat = "identity",
+           fill = "#0071CE", 
+           width = 0.75,
+           alpha = 0.75) +
+  labs(title = "Total Waiver Value by Location",
+       subtitle = "All Colleges, All Levels",
+       caption = "Source: GSU Warehouse Data",
+       x = NULL,
+       y = "Value (USD)") +
+  scale_y_continuous(labels = dollar) +
+  coord_flip() +
+  theme_minimal()
+
+```
+
+<br>
+<br>
+
+```{r fig.height = 2}
+
+ggplot(wavers_by_state, 
+       aes(label = Location,
+           fill = Value,
+           area = Value)) + 
+  labs(title = "Proportion of Waive Value by Location",
+       subtitle = "All Colleges, Levels, & Programs",
+       caption = "Source: GSU Warehouse Data") +
+  geom_treemap(show.legend = FALSE) +
+  geom_treemap_text(color = "white",
+                    show.legend = FALSE, 
+                    padding.x = unit(0.05, 
+                                     units = "inch"), 
+                    padding.y = unit(0.05, 
+                                     units = "inch"))
+
+```
+
+<br>
+<br>
+
+# Waivers by College
+
+The following depicts total waivers aggregated by college at all levels.
+
+<br>
+
+```{r}
+
+waivers_by_college <- waiver %>%
+  group_by(college) %>%
+  summarize(Value = sum(c(in_state, out_state))) %>%
+  ungroup() %>%
+  arrange(-Value) %>%
+  mutate(Total = sum(Value),
+         Proportion = Value / Total) %>%
+  rename(College = college) %>%
+  select(-Total)
+
+waivers_by_college %>%
+  mutate(Value = dollar(Value),
+         Proportion = percent(Proportion, 0.01)) %>%
+  kable %>%
+  kable_styling(bootstrap_options = c("striped",
+                                      "hover"))
+  
+
+```
+
+<br>
+
+```{r fig.height = 6}
+
+ggplot(waivers_by_college, 
+       aes(x = reorder(College, Value),
+           y = Value)) + 
+  geom_bar(stat = "identity",
+           fill = "#0071CE", 
+           alpha = 0.75) +
+  labs(title = "Total Waiver Value by College",
+       subtitle = "In-State, Out-of-State, & All Levels",
+       caption = "Source: GSU Warehouse Data",
+       x = NULL,
+       y = "Value (USD)") +
+  scale_y_continuous(labels = dollar) +
+  coord_flip() +
+  theme_minimal()
+
+```
+
+<br>
+<br>
+
+```{r fig.height = 4}
+
+ggplot(waivers_by_college, 
+       aes(label = College,
+           fill = Value,
+           area = Value)) + 
+  labs(title = "Proportion of Total Waiver Value by College",
+       subtitle = "In-State, Out-of-State, & All Levels",
+       caption = "Source: GSU Warehouse Data") +
+  geom_treemap(show.legend = FALSE) +
+  geom_treemap_text(color = "white",
+                    show.legend = FALSE, 
+                    padding.x = unit(0.05, 
+                                     units = "inch"), 
+                    padding.y = unit(0.05, 
+                                     units = "inch"))
+
+```
+
+<br>
+<br>
+
+## College & Location
+
+The following itemizes waivers by college and location across levels.
+
+<br>
+
+```{r}
+
+waivers_by_col_loc <- waiver %>%
+  group_by(college) %>%
+  summarize(in_state = sum(in_state),
+            out_state = sum(out_state)) %>%
+  ungroup() %>%
+  mutate(prop_in_state = in_state / sum(in_state),
+         prop_out_state = out_state / sum(out_state)) %>%
+  arrange(-out_state) %>%
+  select(college, in_state, prop_in_state, out_state, prop_out_state) %>%
+  rename(College = college,
+         "In-State" = in_state,
+         "Out-of-State" = out_state,
+         "In-State (%)" = prop_in_state,
+         "Out-of-State (%)" = prop_out_state)
+
+waivers_by_col_loc %>%
+  mutate(`In-State` = dollar(`In-State`),
+         `In-State (%)` = percent(`In-State (%)`, 0.01),
+         `Out-of-State` = dollar(`Out-of-State`),
+         `Out-of-State (%)` = percent(`Out-of-State (%)`, 0.01)) %>%
+  kable %>%
+  kable_styling(bootstrap_options = c("striped",
+                                      "hover"))
+  
+
+```
+
+<br>
+
+```{r fig.height = 7}
+
+waivers_by_col_loc_viz <- waivers_by_col_loc %>%
+  select(-`In-State (%)`, 
+         -`Out-of-State (%)`) %>%
+  gather(key = Location, 
+         value = Value, 
+         -College)
+
+waivers_by_col_loc_viz %>%
+  ggplot(aes(x = reorder(College, Value),
+             y = Value,
+             fill = Location)) +
+  coord_flip() +
+  geom_bar(stat = "identity", 
+           position = "dodge",
+           alpha = 0.75) +
+  scale_y_continuous(labels = dollar) +
+  labs(title = "Waiver Value by College & Location",
+       subtitle = "All Levels",
+       caption = "Source: GSU Warehouse Data",
+       x = NULL,
+       y = "Value (USD)") +
+  theme_minimal() +
+  scale_fill_manual(values = c("#00AEEF", "#0039A6"))
+
+```
+
+<br>
+<br>
+
+```{r}
+
+ggplot(waivers_by_col_loc_viz, 
+       aes(label = College,
+           fill = Value,
+           area = Value,
+           subgroup = Location)) + 
+  labs(title = "Proportion of Waiver Value by College & Location",
+       subtitle = "All Levels",
+       caption = "Source: GSU Warehouse Data") +
+  geom_treemap(show.legend = FALSE) +
+  geom_treemap_text(color = "white",
+                    show.legend = FALSE, 
+                    padding.x = unit(0.05, 
+                                     units = "inch"), 
+                    padding.y = unit(0.05, 
+                                     units = "inch")) +
+    geom_treemap_subgroup_border(color = "white", 
+                               show.legend = FALSE) +
+  geom_treemap_subgroup_text(color = "white", 
+                             fontface = "bold",
+                             show.legend = FALSE, 
+                             padding.x = unit(0.1, 
+                                              units = "inch"), 
+                             padding.y = unit(0.1, 
+                                              units = "inch"))
+
+```
+
+<br>
+<br>
+
+## College, Location, & Level
+
+Waivers by college, location, and student level.
+
+<br>
+
+```{r}
+
+waiver %>%
+  select(college, level, in_state, out_state) %>%
+  group_by(college, level) %>%
+  summarize(n = n(),
+            in_state = sum(in_state),
+            out_state = sum(out_state)) %>%
+  ungroup() %>%
+  arrange(college, level, -n) %>%
+  mutate(prop_in_state = in_state / sum(in_state),
+         prop_out_state = out_state / sum(out_state)) %>%
+  mutate(n = comma(n, 1),
+         in_state = dollar(in_state),
+         out_state = dollar(out_state),
+         prop_in_state = percent(prop_in_state, 1),
+         prop_out_state = percent(prop_out_state, 1)) %>%
+  select(college:in_state, prop_in_state, 
+         out_state, prop_out_state) %>%
+  rename(College = college,
+         Level = level,
+         Count = n,
+         `In-State` = in_state,
+         `Out-of-State` = out_state,
+         `In (%)` = prop_in_state,
+         `Out (%)` = prop_out_state) %>%
+  kable %>%
+  kable_styling(bootstrap_options = c("striped",
+                                      "hover"))
+  
+  
+
+```
+
+<br>
+
+```{r fig.height = 8}
+
+waiver %>%
+  select(college, level, in_state, out_state) %>%
+  rename(`In-State` = in_state,
+         `Out-of-State` = out_state) %>%
+  gather(key = location, 
+         value = value, 
+         -college, 
+         -level) %>%
+  group_by(college, level, location) %>%
+  summarize(value = sum(value)) %>%
+  ungroup() %>%
+  select(college, location, level, value) %>%
+  arrange(college, level, location, value) %>%
+  rename(College = college,
+         Location = location, 
+         Level = level,
+         Value = value) %>%
+  ggplot(aes(x = reorder(College, Value),
+             y = Value,
+             fill = Location)) +
+  coord_flip() +
+  geom_bar(stat = "identity", 
+           position = "dodge",
+           alpha = 0.75) +
+  scale_y_continuous(labels = dollar) +
+  labs(title = "Waiver Value by College & Location",
+       subtitle = "Faceted by Level",
+       caption = "Source: GSU Warehouse Data",
+       x = NULL,
+       y = "Value (USD)") +
+  theme_minimal() +
+  facet_wrap(~Level) +
+  theme(legend.position = "bottom") +
+  scale_fill_manual(values = c("#00AEEF", "#0039A6"))
+
+```
+
+<br>
+<br>
+
+# Waivers by College & Program
+
+Proportion of total tuition value by programs in each college.
+
+<br>
+<br>
+
+## All Colleges & Programs
+
+Proportions of total tuition value across all colleges and programs.
+
+<br>
+
+```{r out.width = "100%", fig.height = 10}
+
+waiver %>%
+  select(college, prog_code, in_state, out_state) %>%
+  group_by(college, prog_code) %>%
+  summarize(in_state = sum(in_state),
+            out_state = sum(out_state),
+            value = in_state + out_state) %>%
+  ungroup() %>%
+  select(-in_state, -out_state) %>%
+  ggplot(aes(area = value,
+             fill = value,
+             label = prog_code, 
+             subgroup = college)) +
+  geom_treemap(show.legend = FALSE) +
+  geom_treemap_subgroup_border(color = "white", 
+                               show.legend = FALSE) +
+  geom_treemap_subgroup_text(color = "white", 
+                             fontface = "bold",
+                             show.legend = FALSE, 
+                             padding.x = unit(0.1, 
+                                              units = "inch"), 
+                             padding.y = unit(0.1, 
+                                              units = "inch")) +
+  geom_treemap_text(color = "white",
+                    show.legend = FALSE, 
+                    padding.x = unit(0.05, 
+                                     units = "inch"), 
+                    padding.y = unit(0.05, 
+                                     units = "inch")) +
+  labs(title = "Proportion of Total Waiver Value by College & Program",
+       subtitle = "All Programs, Locations, & Levels",
+       caption = "Source: GSU Warehouse Data")
+
+```
+
+<br>
+<br>
+
+## College of Arts & Sciences
+
+```{r}
+
+coas_sum <- waiver %>%
+  select(college, prog_code, in_state, out_state) %>%
+  group_by(college, prog_code) %>%
+  summarize(n = n(),
+            in_state = sum(in_state),
+            out_state = sum(out_state),
+            value = in_state + out_state) %>%
+  ungroup() %>%
+  select(-college, -in_state, -out_state) %>%
+  summarize(mean_n = mean(n),
+            median_n = median(n),
+            max_n = max(n),
+            mean_value = mean(value),
+            median_value = median(value),
+            max_value = max(value))
+
+```
+
+Total waiver value by program for the College of Arts & Sciences.  
+
+<br>
+
+For unique students in each program:
+
+* Average of **`r round(coas_sum$mean_n, 2)`**
+* Median of **`r coas_sum$median_n`**
+* Maximum of **`r coas_sum$max_n`**
+ 
+<br>
+
+For total waiver value in each program:
+
+* Average of **`r dollar(coas_sum$mean_value)`**
+* Median of **`r dollar(coas_sum$median_value)`**
+* Maximum of **`r dollar(coas_sum$max_value)`**
+
+<br>
+
+#### Top 15 Total Waiver Values by Program, COAS
+
+```{r}
+
+waiver_coas <- waiver %>%
+  select(college, prog_code, in_state, out_state) %>%
+  group_by(college, prog_code) %>%
+  summarize(n = n(),
+            in_state = sum(in_state),
+            out_state = sum(out_state),
+            value = in_state + out_state) %>%
+  ungroup() %>%
+  select(-in_state, -out_state) %>%
+  filter(college == "College of Arts & Sciences") %>%
+  arrange(-value)
+
+waiver_coas %>% 
+  select(-college) %>%
+  rename(Program = prog_code,
+         Value = value,
+         Count = n) %>%
+  mutate(`Count (%)` = percent(Count / sum(Count), 0.1),
+         `Value (%)` = percent(Value / sum(Value), 0.1),
+         Value = dollar(Value)) %>%
+  select(Program, Count, `Count (%)`, Value, `Value (%)`) %>%
+  head(15) %>%
+  kable %>%
+  kable_styling(bootstrap_options = c("striped",
+                                      "hover"))
+
+```
+
+<br>
+<br>
+
+```{r fig.height = 7, out.width = "90%"}
+
+waiver_coas %>%
+  head(15) %>%
+  rename(Program = prog_code,
+         Value = value) %>% 
+  ggplot(aes(x = reorder(Program, Value),
+           y = Value)) + 
+  geom_bar(stat = "identity",
+           fill = "#0071CE", 
+           alpha = 0.75) +
+  labs(title = "Top 15 Total Waiver Values by Program, COAS",
+       subtitle = "All Programs, Locations, & Levels",
+       caption = "Source: GSU Warehouse Data",
+       x = NULL,
+       y = "Value (USD)") +
+  scale_y_continuous(labels = dollar) +
+  coord_flip() +
+  theme_minimal()
+
+```
+
+<br>
+<br>
+
+```{r out.width = "100%"}
+
+waiver_coas %>%
+  ggplot(aes(area = value,
+             fill = value,
+             label = prog_code, 
+             subgroup = college)) +
+  geom_treemap(show.legend = FALSE) +
+  geom_treemap_subgroup_border(color = "white", 
+                               show.legend = FALSE) +
+  geom_treemap_text(color = "white",
+                    show.legend = FALSE, 
+                    padding.x = unit(0.05, 
+                                     units = "inch"), 
+                    padding.y = unit(0.05, 
+                                     units = "inch")) +
+  labs(title = "Proportion of Total Waiver Value, COAS",
+       subtitle = "All Programs, Locations, & Levels",
+       caption = "Source: GSU Warehouse Data")
+
+```
+
+
+
+
+
